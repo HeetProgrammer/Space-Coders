@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -8,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
-// --- MATTER.JS SETUP ---
+
 const Engine = Matter.Engine, World = Matter.World, Bodies = Matter.Bodies, Vector = Matter.Vector;
 const engine = Engine.create();
 engine.gravity.y = 0; 
@@ -17,7 +16,7 @@ const ship1Body = Bodies.rectangle(200, 300, 30, 30, { frictionAir: 0.05, densit
 const ship2Body = Bodies.rectangle(600, 300, 30, 30, { frictionAir: 0.05, density: 0.01 });
 Matter.Body.setAngle(ship2Body, Math.PI); 
 
-// Add Static Walls around the 800x600 arena
+// Walls around the map
 const walls = [
   Bodies.rectangle(400, -10, 820, 20, { isStatic: true }), // Top
   Bodies.rectangle(400, 610, 820, 20, { isStatic: true }), // Bottom
@@ -31,18 +30,16 @@ let player2Id = null;
 let playerCodes = { player1: "", player2: "" };
 let projectiles = []; 
 
-// 🔥 UNIFIED MATCH STATE MACHINE
 let matchState = "WAITING"; // 'WAITING' | 'RUNNING' | 'PAUSED' | 'ENDED'
 let pauseInitiator = null;  
 let playerReady = { player1: false, player2: false };
 
-// 🔥 NEW: Overtime Logic
-const MATCH_DURATION = 10;    // 5 minutes
-const OVERTIME_DURATION = 60;  // 1 minute
+const MATCH_DURATION = 300;    
+const OVERTIME_DURATION = 60;
 let matchTimer = MATCH_DURATION; 
 let isOvertime = false;
 
-// --- SERVER-SIDE SPACECRAFT API (Remains Unchanged) ---
+
 class ServerSpacecraftAPI {
   constructor(body, enemyBody, isPlayer1) {
     this.body = body;
@@ -55,6 +52,8 @@ class ServerSpacecraftAPI {
     this.maxSpeed = 3.5;
     this.currentPath = [];
   }
+
+  // These properties can't directly be modified
   get position() { return { x: this.body.position.x, y: this.body.position.y }; }
   get velocity() { return { x: this.body.velocity.x, y: this.body.velocity.y }; }
   get direction() { return (this.body.angle * 180) / Math.PI; }
@@ -133,7 +132,6 @@ function executeGlobalReset() {
   pauseInitiator = null;
   playerReady = { player1: false, player2: false };
   
-  // 🔥 NEW: Reset Timer & Overtime state
   matchTimer = MATCH_DURATION; 
   isOvertime = false;
   
@@ -207,28 +205,23 @@ io.on("connection", (socket) => {
   });
 });
 
-// --- ENGINE REFRESH LOOP ---
 setInterval(() => {
   if (matchState === "RUNNING") {
     
-    // 1. Manage Timers
     matchTimer -= (1 / 60);
     if (matchTimer <= 0) {
       if (!isOvertime) {
-        // Standard time ended: Check for a tie breaker before forcing Overtime
         if (api1.health > api2.health) {
-          api2.health = 0; // Forces Player 1 Win layout
+          api2.health = 0; // Forces Player 1 Win
           matchState = "ENDED";
         } else if (api2.health > api1.health) {
-          api1.health = 0; // Forces Player 2 Win layout
+          api1.health = 0; // Forces Player 2 Win
           matchState = "ENDED";
         } else {
-          // Absolute tie -> Engage Overtime
           isOvertime = true;
           matchTimer = OVERTIME_DURATION;
         }
       } else {
-        // Overtime ended: Check if someone gained a health advantage
         matchTimer = 0;
         matchState = "ENDED";
         
@@ -236,13 +229,13 @@ setInterval(() => {
           api2.health = 0; 
         } else if (api2.health > api1.health) {
           api1.health = 0;
-        } // If they are still completely equal, both healths stay > 0, triggering the DRAW screen
+        } 
         
         io.emit("match_state_change", { matchState, pauseInitiator, playerReady });
       }
     }
 
-    // 2. Execute Code Scripts
+    // Executes Code Scripts
     if (player1Id && playerCodes.player1 && api1.health > 0) {
       try { new Function("spacecraft", playerCodes.player1)(api1); } catch (e) {}
     }
@@ -252,7 +245,6 @@ setInterval(() => {
 
     Engine.update(engine, 1000 / 60);
 
-    // 3. Process Projectiles
     projectiles = projectiles.filter((laser) => {
       const lx = laser.position.x; const ly = laser.position.y;
       if (laser.label === "p2-laser" && Vector.magnitude(Vector.sub(laser.position, ship1Body.position)) < 20) {
@@ -265,14 +257,12 @@ setInterval(() => {
       return true;
     });
 
-    // 4. Check for Mid-Game Deaths
     if (api1.health <= 0 || api2.health <= 0) {
       matchState = "ENDED";
       io.emit("match_state_change", { matchState, pauseInitiator, playerReady });
     }
   }
 
-  // Include isOvertime in payload
   const statePayload = {
     timeLeft: Math.max(0, matchTimer),
     isOvertime: isOvertime,

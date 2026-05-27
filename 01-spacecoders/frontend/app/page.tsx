@@ -8,22 +8,13 @@ const socket = io("http://localhost:3001", { autoConnect: false });
 
 export default function GameArena() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Single Source of Truth
   const [role, setRole] = useState("spectator");
   const [matchState, setMatchState] = useState("WAITING");
   const [pauseInitiator, setPauseInitiator] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   const [code, setCode] = useState<string>(`// Write your automation layout logic here!
-spacecraft.circleAround(200);
-spacecraft.lookAt();
-
-if (spacecraft.getProjectiles().length > 0) {
-    spacecraft.shootAt(spacecraft.enemy.position);
-} else {
-    spacecraft.shoot();
-}`);
+`);
 
   useEffect(() => {
     socket.connect();
@@ -59,7 +50,6 @@ if (spacecraft.getProjectiles().length > 0) {
       ctx.lineWidth = 4;
       ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
 
-      // 🔥 NEW: Dynamic Timer visual for Overtime
       if (state.timeLeft !== undefined) {
         ctx.fillStyle = state.isOvertime ? "#ef4444" : "#f8fafc";
         ctx.font = "bold 24px monospace";
@@ -70,7 +60,7 @@ if (spacecraft.getProjectiles().length > 0) {
           : Math.ceil(state.timeLeft).toString();
 
         ctx.fillText(timerText, canvas.width / 2, 40);
-        ctx.textAlign = "left"; // Reset alignment
+        ctx.textAlign = "left";
       }
 
       const drawSpacecraft = (playerState: any, mainColor: string, accentColor: string) => {
@@ -104,9 +94,7 @@ if (spacecraft.getProjectiles().length > 0) {
         });
       }
 
-      // Check endgame screens
       if (state.player1 && state.player1.health <= 0 && state.player2 && state.player2.health <= 0) {
-        // Edge case: simultaneous double KO
         ctx.fillStyle = "rgba(15, 23, 42, 0.75)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#facc15"; ctx.font = "bold 26px monospace"; ctx.textAlign = "center";
         ctx.fillText("MUTUAL DESTRUCTION - DRAW", canvas.width / 2, canvas.height / 2);
@@ -120,7 +108,7 @@ if (spacecraft.getProjectiles().length > 0) {
         ctx.fillStyle = "#34d399"; ctx.font = "bold 26px monospace";
         ctx.fillText("PLAYER 1 WINS", canvas.width / 2 - 100, canvas.height / 2);
       } else if (state.timeLeft <= 0 && state.isOvertime) {
-        // True Draw: Overtime expired and both ships still have active health values
+        // Overtime expired and both ships still have active health values
         ctx.fillStyle = "rgba(15, 23, 42, 0.75)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#facc15"; ctx.font = "bold 26px monospace";
         ctx.textAlign = "center";
@@ -208,24 +196,24 @@ if (spacecraft.getProjectiles().length > 0) {
 
             {matchState === "WAITING" && (
               <button onClick={handleStartMatch} disabled={isReady} style={{ padding: "12px", backgroundColor: isReady ? "#334155" : "#16a34a", color: isReady ? "#94a3b8" : "#ffffff", fontWeight: "bold", border: "none", borderRadius: "6px", cursor: isReady ? "not-allowed" : "pointer", textTransform: "uppercase" }}>
-                {isReady ? "⏳ Waiting for Opponent..." : "▶️ Start Match"}
+                {isReady ? "Waiting for Opponent..." : "Start Match"}
               </button>
             )}
 
             {matchState === "RUNNING" && (
               <button onClick={() => socket.emit("trigger_pause")} style={{ padding: "12px", backgroundColor: "#eab308", color: "#000000", fontWeight: "bold", border: "none", borderRadius: "6px", cursor: "pointer", textTransform: "uppercase" }}>
-                ✏️ Change Code
+                Change Code
               </button>
             )}
 
             {matchState === "PAUSED" && (
               pauseInitiator === role ? (
                 <button onClick={handleImplementChanges} style={{ padding: "12px", backgroundColor: "#2563eb", color: "#ffffff", fontWeight: "bold", border: "none", borderRadius: "6px", cursor: "pointer", textTransform: "uppercase" }}>
-                  💾 Implement Changes
+                   Implement Changes
                 </button>
               ) : (
                 <div style={{ padding: "12px", backgroundColor: "#334155", color: "#f8fafc", fontWeight: "bold", textAlign: "center", borderRadius: "6px", border: "1px solid #475569" }}>
-                  ⏳ Opponent is modifying code...
+                  Opponent is modifying code...
                 </div>
               )
             )}
@@ -245,7 +233,7 @@ if (spacecraft.getProjectiles().length > 0) {
                   textTransform: "uppercase"
                 }}
               >
-                ♻️ Reset Match
+                Reset Match
               </button>
             )}
 
@@ -256,7 +244,7 @@ if (spacecraft.getProjectiles().length > 0) {
       <div style={{ flexGrow: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "16px", backgroundColor: "#020617" }}>
         <div style={{ marginBottom: "16px", fontSize: "0.85rem", letterSpacing: "1px" }}>
           <span style={{ color: matchState === "ENDED" ? "#ef4444" : matchState === "RUNNING" ? "#22c55e" : "#f59e0b", fontWeight: "bold" }}>
-            STATUS: {matchState === "WAITING" ? "AWAITING PILOTS" : matchState === "RUNNING" ? "SIMULATION ENGAGED" : matchState === "PAUSED" ? "SIMULATION PAUSED" : "MATCH CONCLUDED - RESET REQUIRED"}
+            STATUS: {matchState === "WAITING" ? "AWAITING PLAYERS" : matchState === "RUNNING" ? "MATCH RUNNING" : matchState === "PAUSED" ? "MATCH PAUSED" : "MATCH CONCLUDED - RESET REQUIRED"}
           </span>
         </div>
 
