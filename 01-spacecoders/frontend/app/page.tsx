@@ -11,7 +11,7 @@ export default function GameArena() {
 
   // Single Source of Truth
   const [role, setRole] = useState("spectator");
-  const [matchState, setMatchState] = useState("WAITING"); // WAITING, RUNNING, PAUSED, ENDED
+  const [matchState, setMatchState] = useState("WAITING");
   const [pauseInitiator, setPauseInitiator] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
@@ -55,6 +55,24 @@ if (spacecraft.getProjectiles().length > 0) {
         ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
       }
 
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+
+      // 🔥 NEW: Dynamic Timer visual for Overtime
+      if (state.timeLeft !== undefined) {
+        ctx.fillStyle = state.isOvertime ? "#ef4444" : "#f8fafc";
+        ctx.font = "bold 24px monospace";
+        ctx.textAlign = "center";
+
+        const timerText = state.isOvertime
+          ? `OVERTIME: ${Math.ceil(state.timeLeft)}`
+          : Math.ceil(state.timeLeft).toString();
+
+        ctx.fillText(timerText, canvas.width / 2, 40);
+        ctx.textAlign = "left"; // Reset alignment
+      }
+
       const drawSpacecraft = (playerState: any, mainColor: string, accentColor: string) => {
         if (!playerState || playerState.health <= 0) return;
         ctx.save();
@@ -86,12 +104,28 @@ if (spacecraft.getProjectiles().length > 0) {
         });
       }
 
-      if (state.player1 && state.player1.health <= 0) {
+      // Check endgame screens
+      if (state.player1 && state.player1.health <= 0 && state.player2 && state.player2.health <= 0) {
+        // Edge case: simultaneous double KO
         ctx.fillStyle = "rgba(15, 23, 42, 0.75)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#f87171"; ctx.font = "bold 26px monospace"; ctx.fillText("PLAYER 2 WINS", canvas.width / 2 - 100, canvas.height / 2);
+        ctx.fillStyle = "#facc15"; ctx.font = "bold 26px monospace"; ctx.textAlign = "center";
+        ctx.fillText("MUTUAL DESTRUCTION - DRAW", canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = "left";
+      } else if (state.player1 && state.player1.health <= 0) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.75)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#f87171"; ctx.font = "bold 26px monospace";
+        ctx.fillText("PLAYER 2 WINS", canvas.width / 2 - 100, canvas.height / 2);
       } else if (state.player2 && state.player2.health <= 0) {
         ctx.fillStyle = "rgba(15, 23, 42, 0.75)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#34d399"; ctx.font = "bold 26px monospace"; ctx.fillText("PLAYER 1 WINS", canvas.width / 2 - 100, canvas.height / 2);
+        ctx.fillStyle = "#34d399"; ctx.font = "bold 26px monospace";
+        ctx.fillText("PLAYER 1 WINS", canvas.width / 2 - 100, canvas.height / 2);
+      } else if (state.timeLeft <= 0 && state.isOvertime) {
+        // True Draw: Overtime expired and both ships still have active health values
+        ctx.fillStyle = "rgba(15, 23, 42, 0.75)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#facc15"; ctx.font = "bold 26px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("TIME UP - DRAW", canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = "left";
       }
     });
 
@@ -103,7 +137,6 @@ if (spacecraft.getProjectiles().length > 0) {
     };
   }, [role]);
 
-  // Derived UI Logic ensures we never get stuck bugs
   const isEditing = matchState === "WAITING" ? !isReady : matchState === "PAUSED" ? pauseInitiator === role : false;
 
   const handleStartMatch = () => {
@@ -112,14 +145,12 @@ if (spacecraft.getProjectiles().length > 0) {
   };
 
   const handleImplementChanges = () => {
-    // Sending code instantly unlocks the PAUSED state on the server
     socket.emit("submit_code", code);
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "row", height: "100vh", backgroundColor: "#020617", color: "#f8fafc", fontFamily: "monospace" }}>
 
-      {/* API Manual Panel */}
       <div style={{ width: "25%", borderRight: "2px solid #1e293b", padding: "16px", overflowY: "auto", backgroundColor: "#0f172a" }}>
         <h2 style={{ fontSize: "1.2rem", color: "#34d399", marginBottom: "16px" }}>API Manual</h2>
 
@@ -162,37 +193,31 @@ if (spacecraft.getProjectiles().length > 0) {
               fontSize: 14,
               minimap: { enabled: false },
               automaticLayout: true,
-              readOnly: !isEditing, // Dynamic UI Lock
-
-              // --- Disable Autocomplete Settings ---
-              quickSuggestions: false,             // Disables as-you-type suggestions
-              suggestOnTriggerCharacters: false,   // Disables suggestions triggered by typing '.' or other characters
-              wordBasedSuggestions: "off",         // Stops the editor from suggesting words already in the file
-              snippetSuggestions: "none",          // Disables code snippet popups
-              parameterHints: { enabled: false }   // (Optional) Disables the function parameter popups if you want it entirely quiet
+              readOnly: !isEditing,
+              quickSuggestions: false,
+              suggestOnTriggerCharacters: false,
+              wordBasedSuggestions: "off",
+              snippetSuggestions: "none",
+              parameterHints: { enabled: false }
             }}
           />
         </div>
 
-        {/* Dynamic Action Buttons */}
         {role !== "spectator" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "16px" }}>
 
-            {/* WAITING PHASE */}
             {matchState === "WAITING" && (
               <button onClick={handleStartMatch} disabled={isReady} style={{ padding: "12px", backgroundColor: isReady ? "#334155" : "#16a34a", color: isReady ? "#94a3b8" : "#ffffff", fontWeight: "bold", border: "none", borderRadius: "6px", cursor: isReady ? "not-allowed" : "pointer", textTransform: "uppercase" }}>
                 {isReady ? "⏳ Waiting for Opponent..." : "▶️ Start Match"}
               </button>
             )}
 
-            {/* RUNNING PHASE */}
             {matchState === "RUNNING" && (
               <button onClick={() => socket.emit("trigger_pause")} style={{ padding: "12px", backgroundColor: "#eab308", color: "#000000", fontWeight: "bold", border: "none", borderRadius: "6px", cursor: "pointer", textTransform: "uppercase" }}>
                 ✏️ Change Code
               </button>
             )}
 
-            {/* PAUSED PHASE */}
             {matchState === "PAUSED" && (
               pauseInitiator === role ? (
                 <button onClick={handleImplementChanges} style={{ padding: "12px", backgroundColor: "#2563eb", color: "#ffffff", fontWeight: "bold", border: "none", borderRadius: "6px", cursor: "pointer", textTransform: "uppercase" }}>
@@ -205,7 +230,6 @@ if (spacecraft.getProjectiles().length > 0) {
               )
             )}
 
-            {/* ENDED OR PAUSED: Reset is available */}
             {(matchState === "ENDED" || matchState === "PAUSED") && (
               <button
                 onClick={() => socket.emit("trigger_reset")}

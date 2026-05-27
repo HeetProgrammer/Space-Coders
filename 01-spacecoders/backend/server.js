@@ -15,8 +15,16 @@ engine.gravity.y = 0;
 
 const ship1Body = Bodies.rectangle(200, 300, 30, 30, { frictionAir: 0.05, density: 0.01 });
 const ship2Body = Bodies.rectangle(600, 300, 30, 30, { frictionAir: 0.05, density: 0.01 });
-Matter.Body.setAngle(ship2Body, Math.PI); // Fix 4: Make Red face Blue instantly on startup
-World.add(engine.world, [ship1Body, ship2Body]);
+Matter.Body.setAngle(ship2Body, Math.PI); 
+
+// Add Static Walls around the 800x600 arena
+const walls = [
+  Bodies.rectangle(400, -10, 820, 20, { isStatic: true }), // Top
+  Bodies.rectangle(400, 610, 820, 20, { isStatic: true }), // Bottom
+  Bodies.rectangle(-10, 300, 20, 620, { isStatic: true }), // Left
+  Bodies.rectangle(810, 300, 20, 620, { isStatic: true })  // Right
+];
+World.add(engine.world, [ship1Body, ship2Body, ...walls]);
 
 let player1Id = null;
 let player2Id = null;
@@ -25,8 +33,14 @@ let projectiles = [];
 
 // 🔥 UNIFIED MATCH STATE MACHINE
 let matchState = "WAITING"; // 'WAITING' | 'RUNNING' | 'PAUSED' | 'ENDED'
-let pauseInitiator = null;  // 'player1' | 'player2'
+let pauseInitiator = null;  
 let playerReady = { player1: false, player2: false };
+
+// 🔥 NEW: Overtime Logic
+const MATCH_DURATION = 10;    // 5 minutes
+const OVERTIME_DURATION = 60;  // 1 minute
+let matchTimer = MATCH_DURATION; 
+let isOvertime = false;
 
 // --- SERVER-SIDE SPACECRAFT API (Remains Unchanged) ---
 class ServerSpacecraftAPI {
@@ -119,6 +133,10 @@ function executeGlobalReset() {
   pauseInitiator = null;
   playerReady = { player1: false, player2: false };
   
+  // 🔥 NEW: Reset Timer & Overtime state
+  matchTimer = MATCH_DURATION; 
+  isOvertime = false;
+  
   api1.health = 100;
   api2.health = 100;
   projectiles.forEach((laser) => World.remove(engine.world, laser));
@@ -130,7 +148,7 @@ function executeGlobalReset() {
 
   Matter.Body.setPosition(ship2Body, { x: 600, y: 300 });
   Matter.Body.setVelocity(ship2Body, { x: 0, y: 0 });
-  Matter.Body.setAngle(ship2Body, Math.PI); // Reset Red facing Blue
+  Matter.Body.setAngle(ship2Body, Math.PI);
 
   io.emit("match_state_change", { matchState, pauseInitiator, playerReady });
 }
@@ -143,12 +161,10 @@ io.on("connection", (socket) => {
   socket.emit("role_assigned", role);
   socket.emit("match_state_change", { matchState, pauseInitiator, playerReady });
 
-  // 1. Submit Code / Auto-Resume
   socket.on("submit_code", (codeString) => {
     if (socket.id === player1Id) playerCodes.player1 = codeString;
     if (socket.id === player2Id) playerCodes.player2 = codeString;
 
-    // Fix 2: If the match was paused and the initiator submitted code, instantly resume!
     if (matchState === "PAUSED") {
       const isInitiator = (socket.id === player1Id && pauseInitiator === "player1") || 
                           (socket.id === player2Id && pauseInitiator === "player2");
@@ -160,21 +176,16 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 2. Trigger Pause
   socket.on("trigger_pause", () => {
     if ((socket.id === player1Id || socket.id === player2Id) && matchState === "RUNNING") {
       matchState = "PAUSED";
       pauseInitiator = socket.id === player1Id ? "player1" : "player2";
-      
-      // Stop momentum
       Matter.Body.setVelocity(ship1Body, { x: 0, y: 0 });
       Matter.Body.setVelocity(ship2Body, { x: 0, y: 0 });
-      
       io.emit("match_state_change", { matchState, pauseInitiator, playerReady });
     }
   });
 
-  // 3. Trigger Start (Ready Up)
   socket.on("trigger_start", () => {
     if (socket.id === player1Id) playerReady.player1 = true;
     if (socket.id === player2Id) playerReady.player2 = true;
@@ -199,6 +210,39 @@ io.on("connection", (socket) => {
 // --- ENGINE REFRESH LOOP ---
 setInterval(() => {
   if (matchState === "RUNNING") {
+    
+    // 1. Manage Timers
+    matchTimer -= (1 / 60);
+    if (matchTimer <= 0) {
+      if (!isOvertime) {
+        // Standard time ended: Check for a tie breaker before forcing Overtime
+        if (api1.health > api2.health) {
+          api2.health = 0; // Forces Player 1 Win layout
+          matchState = "ENDED";
+        } else if (api2.health > api1.health) {
+          api1.health = 0; // Forces Player 2 Win layout
+          matchState = "ENDED";
+        } else {
+          // Absolute tie -> Engage Overtime
+          isOvertime = true;
+          matchTimer = OVERTIME_DURATION;
+        }
+      } else {
+        // Overtime ended: Check if someone gained a health advantage
+        matchTimer = 0;
+        matchState = "ENDED";
+        
+        if (api1.health > api2.health) {
+          api2.health = 0; 
+        } else if (api2.health > api1.health) {
+          api1.health = 0;
+        } // If they are still completely equal, both healths stay > 0, triggering the DRAW screen
+        
+        io.emit("match_state_change", { matchState, pauseInitiator, playerReady });
+      }
+    }
+
+    // 2. Execute Code Scripts
     if (player1Id && playerCodes.player1 && api1.health > 0) {
       try { new Function("spacecraft", playerCodes.player1)(api1); } catch (e) {}
     }
@@ -208,6 +252,7 @@ setInterval(() => {
 
     Engine.update(engine, 1000 / 60);
 
+    // 3. Process Projectiles
     projectiles = projectiles.filter((laser) => {
       const lx = laser.position.x; const ly = laser.position.y;
       if (laser.label === "p2-laser" && Vector.magnitude(Vector.sub(laser.position, ship1Body.position)) < 20) {
@@ -220,13 +265,17 @@ setInterval(() => {
       return true;
     });
 
+    // 4. Check for Mid-Game Deaths
     if (api1.health <= 0 || api2.health <= 0) {
       matchState = "ENDED";
       io.emit("match_state_change", { matchState, pauseInitiator, playerReady });
     }
   }
 
+  // Include isOvertime in payload
   const statePayload = {
+    timeLeft: Math.max(0, matchTimer),
+    isOvertime: isOvertime,
     player1: { x: ship1Body.position.x, y: ship1Body.position.y, angle: ship1Body.angle, health: api1.health },
     player2: { x: ship2Body.position.x, y: ship2Body.position.y, angle: ship2Body.angle, health: api2.health },
     lasers: projectiles.map(l => ({ x: l.position.x, y: l.position.y }))
