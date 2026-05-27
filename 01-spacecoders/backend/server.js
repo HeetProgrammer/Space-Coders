@@ -274,4 +274,4 @@ setInterval(() => {
   io.emit("game_state_update", statePayload);
 }, 1000 / 60);
 
-server.listen(3001, () => console.log("🔥 Engine Running safely on Port 3001"));
+server.listen(3001, () => console.log("Engine Running safely on Port 3001"));

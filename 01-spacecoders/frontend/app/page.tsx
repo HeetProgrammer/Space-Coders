@@ -13,7 +13,7 @@ export default function GameArena() {
   const [pauseInitiator, setPauseInitiator] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
-  const [code, setCode] = useState<string>(`// Write your automation layout logic here!
+  const [code, setCode] = useState<string>(`// Write your code logic here!
 `);
 
   useEffect(() => {
